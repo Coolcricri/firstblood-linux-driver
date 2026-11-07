@@ -1,0 +1,5 @@
+/* Linux edition UI fixes.
+ * The bottom bar is a window-drag area (-webkit-app-region: drag). The "Configuration" selector overflows its small
+ * no-drag container, so the right half of the selector (including its arrow) was swallowed by window dragging and
+ * did not react to clicks. Make the selector itself a no-drag area. */
+[class*="notoutside"] { -webkit-app-region: no-drag !important; }

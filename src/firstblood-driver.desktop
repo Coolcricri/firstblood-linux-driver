@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Firstblood Driver
+Comment=Configure keys and macros on Firstblood keyboards
+Exec=firstblood-driver
+Icon=firstblood-driver
+Categories=Utility;Settings;HardwareSettings;
+Terminal=false

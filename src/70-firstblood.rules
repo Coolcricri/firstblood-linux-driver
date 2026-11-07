@@ -1,0 +1,8 @@
+# Firstblood keyboards: give the logged-in user access to the configuration interfaces (hidraw).
+# Must be numbered below 73 so that systemd-logind's "uaccess" handling sees the tag.
+ACTION=="remove", GOTO="firstblood_end"
+SUBSYSTEM!="hidraw", GOTO="firstblood_end"
+ATTRS{idVendor}=="3151", ENV{FB_VID_OK}="1"
+# only the vendor interfaces (1 and 2), not the normal typing interface
+ENV{FB_VID_OK}=="1", KERNELS=="*:1.[12]", TAG+="uaccess", MODE="0660"
+LABEL="firstblood_end"

@@ -1,0 +1,17 @@
+#!/bin/sh
+HERE="$(dirname "$(readlink -f "$0")")"
+NAME=70-firstblood.rules
+RULES=/etc/udev/rules.d/$NAME
+if [ "$1" = "--install-udev-rules" ]; then
+  # Copy the rules to a normal temp file first: root cannot read inside the user's AppImage mount.
+  TMP="$(mktemp /tmp/$NAME.XXXXXX)"
+  cp "$HERE/usr/lib/firstblood/$NAME" "$TMP" || { echo "Could not read bundled rules"; exit 1; }
+  chmod 644 "$TMP"
+  echo "Installing udev rules to $RULES (needs administrator rights)..."
+  if [ "$(id -u)" = 0 ]; then SUDO=""; elif command -v pkexec >/dev/null 2>&1; then SUDO="pkexec"; else SUDO="sudo"; fi
+  $SUDO sh -c "install -m 644 '$TMP' $RULES && rm -f /etc/udev/rules.d/99-firstblood.rules; (command -v restorecon >/dev/null 2>&1 && restorecon $RULES); udevadm control --reload-rules; udevadm trigger --subsystem-match=hidraw --action=change; udevadm settle --timeout=5; true"
+  RC=$?; rm -f "$TMP"
+  if [ $RC -eq 0 ]; then echo "Done. If the keyboard is not detected, unplug and re-plug it."; else echo "Failed (exit $RC)."; fi
+  exit $RC
+fi
+exec "$HERE/usr/lib/firstblood/firstblood-driver" --no-sandbox "$@"
