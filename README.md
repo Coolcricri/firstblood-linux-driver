@@ -12,8 +12,8 @@ plus a Linux replacement for the vendor's native helper (`iot_driver`), which on
 Result: `out/Firstblood-Driver-linux-x86_64.AppImage`. About a minute on a normal connection.
 
 * **Needs:** bash, curl, unzip, python3, node >= 16 + npm, sha256sum; gcc + make + static zlib (`libz.a`) for the bundled
-  `mksquashfs` (or `--no-absorb-tool`, which leaves out `--absorb-windows-files`). Network access to github.com and registry.npmjs.org.
-* **You must supply** the vendor's macOS zip. It is proprietary and therefore **not** in this tree. `versions.env` pins its
+  `mksquashfs` (or `--no-absorb-tool`). Network access to github.com and registry.npmjs.org.
+* **You must supply** the vendor's macOS zip (https://orders.epomaker.com/software/Firstblood_Driver_2.0.18_mac.zip). `versions.env` pins its
   SHA-256 and that of the files inside; the build stops if they differ (`--force` overrides).
 * Options: `--out DIR`, `--work DIR`, `--cache DIR` (downloads), `--skip-tests`, `--no-absorb-tool`, `--force`.
 * Everything downloaded is pinned in `versions.env` (Electron 22.3.27, node-hid 3.4.0, sql.js 1.10.3, @electron/asar 4.3.1,
@@ -63,20 +63,11 @@ Result: `out/Firstblood-Driver-linux-x86_64.AppImage`. About a minute on a norma
 * **Privacy:** no analytics; the app blocks every request except to its own local driver, and Chromium's background networking is off.
 * **Data:** `~/.config/firstblood-driver/` (`iot_db/CONFIG`, `iot_db/macro`, `config/`, `backups/`). A snapshot is taken at every start
   (newest 25 kept); lists that shrink are backed up first; exact duplicate configurations are removed at start.
-* **Permissions:** the app offers to install `/etc/udev/rules.d/70-firstblood.rules` the first time it cannot open the keyboard.
+* **Permissions:** the app offers to install `/etc/udev/rules.d/70-firstblood.rules` the first time it cannot open the keyboard (from personal testing this happens with hidraw connections, such as usbc to usbc cables).
 * Flags: run the AppImage with `--help`.
 * Debugging: `FB_DEBUG=1` logs every byte sent and received; `FB_SEND_DELAY_MS`, `FB_READ_POLL_MS` tune timing.
 
-## Files from the Windows install
-
-Everything the narrowed app uses is in `assets/company_Firstblood/` **except one file** that the code references but was not supplied:
-
-* `resources/app/company/company_Firstblood/default_background.png`: default window background image (the app works without it, using a plain colour)
-
-(The vendor archive also lists `dev/yc500_b18_soc.png`, a picture for a different keyboard model; not needed for the B6.)
-To add it: copy it into `assets/company_Firstblood/` and rebuild, or run the finished AppImage with `--absorb-windows-files` from inside the Windows folder.
-
-## Not verified
+## Not verified (by claude code directly)
 
 No test has been run against a physical keyboard. The checksum position and timing come from disassembling the vendor helper and are
 exercised only against the simulator in `tests/`. Wireless modes (2.4G dongle, Bluetooth), music/screen lighting, OLED screens and
