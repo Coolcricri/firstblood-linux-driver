@@ -24,7 +24,9 @@ const deviceList = (list, type) => Buffer.concat([
 
 // ---------- RPC handlers ----------
 // Firmware updating is not part of this build: refuse the command that makes the keyboard enter its bootloader (0x7F).
-const FORBIDDEN_CMD = new Set([0x7f]);
+// Firmware-class opcodes named in the vendor bundle: bootloader entry (0x7F), flash chip erase (0x2C/0xAC), LED-MCU and OLED
+// bootloaders (0x40/0x41/0x30/0x31). The B6 UI never needs them. FB_ALLOW_FIRMWARE=1 lifts the block.
+const FORBIDDEN_CMD = new Set([0x7f, 0x2c, 0xac, 0x40, 0x41, 0x30, 0x31]);
 const forbidden = (b, raw) => !process.env.FB_ALLOW_FIRMWARE && b && b.length > (raw ? 1 : 0) && FORBIDDEN_CMD.has(b[raw ? 1 : 0]);
 const unary = {
   async sendMsg(req) {

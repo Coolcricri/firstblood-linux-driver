@@ -2,7 +2,8 @@
 const HID = require(process.env.FB_HID_MODULE || 'node-hid');
 const checksum = require('./checksum');
 
-const log = (...a) => { if (process.env.FB_DEBUG) console.error('[fb-driver]', ...a); };
+// FB_DEBUG=1 logs frames; FB_DEBUG=2 also prefixes each line with a millisecond timestamp (@ms) so packet pacing can be analysed (tests/hw/analyze-log.js)
+const log = (...a) => { if (process.env.FB_DEBUG) console.error('[fb-driver]', ...(process.env.FB_DEBUG === '2' ? ['@' + Math.round(performance.now())] : []), ...a); };
 const hex = (b) => Buffer.from(b).toString('hex').replace(/(..)/g, '$1 ').trim();
 
 // This build supports the Firstblood B6 (6-button pad, wired): VID 0x3151, PID 0x4015.
@@ -16,6 +17,9 @@ const isVender = (d) => d.usagePage === 0xffff && d.usage === 1 && d.interface =
 
 const SEND_DELAY = Number(process.env.FB_SEND_DELAY_MS || 8);
 const READ_POLL = Number(process.env.FB_READ_POLL_MS || 400);
+// Replies that are raw data and do NOT echo the command byte (measured on a real B6, tests/hw A5): key-matrix reads (0x89)
+// and macro reads (0x8B). Waiting for an echo on these only burns READ_POLL (400 ms) per 64-byte packet.
+const NO_ECHO = new Set([0x89, 0x8b].concat((process.env.FB_NO_ECHO_CMDS || '').split(',').filter(Boolean).map((x) => parseInt(x, 16))));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 class Dev {
@@ -42,7 +46,7 @@ class Dev {
     return this.lock(async () => {
       const want = this.lastCmd; this.lastCmd = undefined;
       let r = this._get();
-      if (want === undefined) return r;
+      if (want === undefined || NO_ECHO.has(want)) return r;
       const end = Date.now() + READ_POLL;
       while (r[0] !== want && Date.now() < end) { await sleep(3); r = this._get(); }
       if (r[0] !== want) log('read: no echo of cmd', want.toString(16), 'got', hex(r.slice(0, 8)));

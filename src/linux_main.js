@@ -1,5 +1,5 @@
 'use strict';
-// Linux entry point: command-line tools, root-folder resource overlay, built-in HID driver, then the original UI.
+// Linux entry point: command-line tools, writable CONFIG.json overlay, built-in HID driver, then the original UI.
 const { app } = require('electron');
 const path = require('path');
 const tools = require('./linux_driver/tools');
@@ -12,20 +12,10 @@ const HELP = `Firstblood Driver (Linux)
 
 Usage: Firstblood-Driver-linux-x86_64.AppImage [options]
 
-All major graphics (logos, background, device pictures, main icon) come from the Windows install: place the
-AppImage inside the Windows "Firstblood Driver" folder (the one containing resources/app/company), or bake them
-in with --absorb-windows-files to get a portable copy. Without either, those pictures are simply missing.
+The logos, device pictures and icon are built into this AppImage.
 
-  --root <folder>              use this folder instead of the AppImage's own folder
-  --absorb-windows-files       copy the Windows pictures and main icon INTO a new AppImage
-                               (<name>-portable.AppImage next to this one), so the Windows folder is no longer needed
-      --output <file>          where to write that new AppImage
-  --purge-windows-files        delete Windows-only files in the root folder that the Linux build does not need
-                               (matched by their known file names; company/ resources are always kept)
-      --dry-run                only list what would be deleted
-      --yes                    do not ask for confirmation
   --import-windows-data [path] import saved configurations and macros from the Windows 'db' file
-                               (path: the 'db' file or the folder containing it; default: the root folder)
+                               (path: the 'db' file or the folder containing it; default: the folder holding this AppImage)
       --include-deleted        also import entries the Windows app had marked as deleted
   --list-backups               list the automatic backups of your configurations and macros
   --restore-backup <name>      restore one of them (the current state is backed up first)
@@ -39,22 +29,19 @@ Debugging: FB_DEBUG=1 prints every byte sent to / received from the keyboard.
 `;
 
 (async () => {
-  const wantsCli = has('--help') || has('-h') || has('--purge-windows-files') || has('--absorb-windows-files') || has('--import-windows-data') || has('--reset-device-cache') || has('--list-backups') || has('--restore-backup') || has('--dedupe-configs');
-  const root = tools.resolveRoot(val('--root'));
+  const wantsCli = has('--help') || has('-h') || has('--import-windows-data') || has('--install-udev-rules') || has('--reset-device-cache') || has('--list-backups') || has('--restore-backup') || has('--dedupe-configs');
   if (wantsCli) {
     let code = 0;
     try {
       if (has('--help') || has('-h')) console.log(HELP);
-      if (has('--absorb-windows-files')) code = (await tools.absorb(root, val('--output'))) || code;
-      if (has('--purge-windows-files')) code = (await tools.purge(root, { dryRun: has('--dry-run'), yes: has('--yes') })) || code;
       if (has('--import-windows-data')) {
-        const src = val('--import-windows-data') || root;
-        if (!src) { console.log('Give the path of the Windows db file or its folder.'); code = 1; }
-        else code = (await tools.importWindows(src, app.getPath('userData'), { includeDeleted: has('--include-deleted') })) || code;
+        const src = val('--import-windows-data') || tools.defaultImportDir();
+        code = (await tools.importWindows(src, app.getPath('userData'), { includeDeleted: has('--include-deleted') })) || code;
       }
       if (has('--list-backups')) tools.listBackups(app.getPath('userData'));
       if (has('--restore-backup')) code = tools.restoreBackup(app.getPath('userData'), val('--restore-backup')) || code;
       if (has('--dedupe-configs')) { const n = tools.dedupeConfigs(app.getPath('userData'), true); console.log(n ? `Removed ${n} duplicate configuration entr${n === 1 ? 'y' : 'ies'}.` : 'No duplicate configurations found.'); }
+      if (has('--install-udev-rules')) { const r = await tools.installUdevRules(); console.log(r.ok ? 'udev rule installed. Unplug and re-plug the keyboard.' : 'Could not install the udev rule: ' + (r.error || 'unknown error')); if (!r.ok) code = 1; }
       if (has('--reset-device-cache')) code = tools.resetDeviceCache(app.getPath('userData')) || code;
     } catch (e) { console.error('Error:', e.message); code = 1; }
     app.exit(code);
@@ -70,15 +57,12 @@ Debugging: FB_DEBUG=1 prints every byte sent to / received from the keyboard.
   app.commandLine.appendSwitch('host-resolver-rules', 'MAP * ~NOTFOUND, EXCLUDE 127.0.0.1, EXCLUDE localhost');
   if (!app.requestSingleInstanceLock()) { app.quit(); return; }
 
-  // Resources (device pictures etc.) are taken from the Windows root folder when the AppImage sits in it.
+  // Pictures and CONFIG.json: the app folder is replaced by an overlay whose CONFIG.json is writable (see tools.buildOverlay).
   const realApp = app.getAppPath();
-  const ext = root && tools.findCompanyDir(root);
   try {
-    const ov = tools.buildOverlay(realApp, ext || null, app.getPath('userData'));
+    const ov = tools.buildOverlay(realApp, app.getPath('userData'));
     app.getAppPath = () => ov.base;
-    if (ext) console.error(`[fb] using pictures from ${ext}`);
-    else if (tools.companyIcon(path.join(realApp, 'company'))) console.error('[fb] using the Windows graphics built into this AppImage.');
-    else console.error('[fb] AppImage is not in the Windows root folder and has no graphics built in: logos, device pictures and icon will be missing.');
+    if (!tools.companyIcon(path.join(realApp, 'company'))) console.error('[fb] warning: no company_*/icon.png found in this AppImage; logos and icon will be missing.');
   } catch (e) { console.error('[fb] could not prepare resources:', e.message); }
 
   // Privacy: nothing leaves this computer. Only local files and the local driver (127.0.0.1) are reachable.
@@ -94,7 +78,7 @@ Debugging: FB_DEBUG=1 prints every byte sent to / received from the keyboard.
   // Safety net for configurations and macros: snapshot at every start, and remove exact duplicate configurations.
   try { const ud = app.getPath('userData'); require('./linux_driver/kv').backupAll(ud, 'startup'); tools.dedupeConfigs(ud, true); } catch (e) { console.error('[fb] startup backup failed:', e.message); }
 
-  // Main window icon from the Windows graphics (company_*/icon.png)
+  // Main window icon (company_*/icon.png)
   app.on('browser-window-created', (e, win) => {
     try { // UI fixes (see ui-fixes.css)
       const css = require('fs').readFileSync(path.join(__dirname, 'ui-fixes.css'), 'utf8');

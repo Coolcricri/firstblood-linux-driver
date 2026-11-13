@@ -1,25 +1,17 @@
 'use strict';
-// Command-line tools: Windows data import, device cache reset, root-folder resource overlay, purge of Windows files.
+// Command-line tools: Windows data import, backups, de-duplication, device cache reset, udev rule install; plus the writable
+// CONFIG.json overlay (the AppImage is read-only, the app rewrites CONFIG.json when the language is changed).
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const readline = require('readline');
 const { execFile } = require('child_process');
 const kv = require('./kv');
 
 const say = (...a) => console.log(...a);
-const IMG_RE = /\.(png|jpe?g|gif|webp|svg|ico|bmp)$/i;
 
-// ------------------------------------------------------------------ root folder / resources
-const COMPANY_CANDIDATES = ['resources/app/company', 'company'];
-function findCompanyDir(root) {
-  for (const c of COMPANY_CANDIDATES) { const p = path.join(root, c); if (fs.existsSync(p) && fs.statSync(p).isDirectory()) return p; }
-  return null;
-}
-function resolveRoot(argvRoot) {
-  const r = argvRoot || process.env.FB_ROOT || (process.env.APPIMAGE ? path.dirname(process.env.APPIMAGE) : null);
-  return r ? path.resolve(r) : null;
-}
+// ------------------------------------------------------------------ resources
+// Folder the Windows 'db' file is looked for when --import-windows-data is given without a path: the folder holding the AppImage.
+const defaultImportDir = () => (process.env.APPIMAGE ? path.dirname(process.env.APPIMAGE) : process.cwd());
 function listTree(dir, base = dir, out = new Map()) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, e.name);
@@ -27,18 +19,15 @@ function listTree(dir, base = dir, out = new Map()) {
   }
   return out;
 }
-// Build a folder that looks like the app folder but whose company/ resources (pictures etc.) come from the
-// Windows root folder, falling back to the bundled ones for anything missing there.
-function buildOverlay(realApp, extCompany, userData) {
+// Build a folder that looks like the app folder, except that company/CONFIG.json is a writable copy kept in the user-data folder.
+function buildOverlay(realApp, userData) {
   const base = path.join(os.tmpdir(), `fb-overlay-${process.getuid ? process.getuid() : 0}`);
   fs.rmSync(base, { recursive: true, force: true });
   fs.mkdirSync(base, { recursive: true });
   for (const e of fs.readdirSync(realApp)) if (e !== 'company') fs.symlinkSync(path.join(realApp, e), path.join(base, e));
   const files = new Map();
-  for (const src of [path.join(realApp, 'company'), extCompany]) {
-    // from the Windows folder only pictures are taken (its CONFIG.json etc. must not change this build's behaviour)
-    if (src && fs.existsSync(src)) for (const [rel, abs] of listTree(src)) if (src !== extCompany || IMG_RE.test(rel)) files.set(rel, abs);
-  }
+  const src = path.join(realApp, 'company');
+  if (fs.existsSync(src)) for (const [rel, abs] of listTree(src)) files.set(rel, abs);
   // CONFIG.json is rewritten by the app (language choice), so a writable copy lives in the user-data folder.
   if (userData) {
     for (const [rel, abs] of [...files]) {
@@ -70,95 +59,6 @@ function companyIcon(companyDir) {
     }
   } catch (e) {}
   return null;
-}
-
-// ------------------------------------------------------------------ absorb: bake the Windows graphics into a new AppImage
-const run = (cmd, args) => new Promise((res, rej) => execFile(cmd, args, { maxBuffer: 1 << 26 }, (e, so, se) => (e ? rej(new Error((se || e.message).trim())) : res(so))));
-async function absorb(root, output) {
-  const appimage = process.env.APPIMAGE, appdir = process.env.APPDIR;
-  if (!appimage || !appdir) { say('--absorb-windows-files only works when running the AppImage itself.'); return 1; }
-  const ext = root && findCompanyDir(root);
-  if (!ext) { say(`'${root}' does not look like the Windows root folder (no resources/app/company). Put the AppImage there or use --root <folder>.`); return 1; }
-  const mk = [path.join(appdir, 'usr/lib/firstblood/bin/mksquashfs'), '/usr/bin/mksquashfs'].find((p) => fs.existsSync(p));
-  if (!mk) { say('mksquashfs is missing.'); return 1; }
-  const out = output || path.join(path.dirname(appimage), path.basename(appimage).replace(/\.AppImage$/i, '') + '-portable.AppImage');
-  const cache = path.join(process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache'), 'firstblood-driver');
-  fs.mkdirSync(cache, { recursive: true });
-  const stage = fs.mkdtempSync(path.join(cache, 'absorb-'));
-  try {
-    say('Copying the application to a work folder...');
-    await run('cp', ['-a', appdir + '/.', stage]);
-    const destCompany = path.join(stage, 'usr/lib/firstblood/resources/app/company');
-    fs.rmSync(destCompany, { recursive: true, force: true });   // bundled placeholders are replaced by the Windows graphics
-    let n = 0;
-    for (const [rel, abs] of listTree(ext)) {
-      if (!IMG_RE.test(rel)) continue;
-      const d = path.join(destCompany, rel); fs.mkdirSync(path.dirname(d), { recursive: true }); fs.copyFileSync(abs, d); n++;
-    }
-    const cfg = path.join(appdir, 'usr/lib/firstblood/resources/app/company');
-    for (const [rel, abs] of listTree(cfg)) if (!IMG_RE.test(rel)) { const d = path.join(destCompany, rel); fs.mkdirSync(path.dirname(d), { recursive: true }); fs.copyFileSync(abs, d); }
-    const icon = companyIcon(destCompany);
-    if (icon) { fs.copyFileSync(icon, path.join(stage, 'firstblood-driver.png')); say('Main icon taken from ' + path.relative(destCompany, icon)); }
-    else say('Note: no company_*/icon.png found; keeping the placeholder icon.');
-    say(`Absorbed ${n} picture file(s). Building the new AppImage (this takes a minute)...`);
-    const sq = path.join(cache, 'new.squashfs'); fs.rmSync(sq, { force: true });
-    await run(mk, [stage, sq, '-noappend', '-comp', 'gzip', '-no-progress', '-quiet', '-all-root']);
-    const offset = Number((await run(appimage, ['--appimage-offset'])).trim());
-    if (!offset) throw new Error('could not determine the AppImage runtime size');
-    const fd = fs.openSync(appimage, 'r'); const head = Buffer.alloc(offset); fs.readSync(fd, head, 0, offset, 0); fs.closeSync(fd);
-    fs.writeFileSync(out, head); fs.appendFileSync(out, fs.readFileSync(sq)); fs.chmodSync(out, 0o755); fs.rmSync(sq, { force: true });
-    say('Created: ' + out);
-    say('This copy contains the graphics and icon, so it no longer needs the Windows folder.');
-    return 0;
-  } catch (e) { say('Failed: ' + e.message); return 1; }
-  finally { fs.rmSync(stage, { recursive: true, force: true }); }
-}
-
-// ------------------------------------------------------------------ purge
-// Files of the Windows install that the Linux build does not need. Matched by exact relative path (case-insensitive).
-const KNOWN_WINDOWS_FILES = [
-  'Firstblood Driver.exe', 'Uninstall Firstblood Driver.exe', 'LICENSE.electron.txt', 'LICENSES.chromium.html',
-  'chrome_100_percent.pak', 'chrome_200_percent.pak', 'resources.pak', 'icudtl.dat', 'natives_blob.bin',
-  'snapshot_blob.bin', 'v8_context_snapshot.bin', 'libEGL.dll', 'libGLESv2.dll', 'vcruntime140.dll', 'ffmpeg.dll',
-  'd3dcompiler_47.dll', 'vk_swiftshader.dll', 'vk_swiftshader_icd.json', 'vulkan-1.dll', 'dxcompiler.dll', 'dxil.dll',
-  'resources/electron.asar', 'resources/elevate.exe', 'resources/app/iot_driver.exe', 'resources/app/index.html',
-  'resources/app/package.json', 'resources/app/dist/index.js', 'resources/app/dist/main.js',
-];
-const KNOWN_PATTERNS = [/^locales\/[^/]+\.pak$/i];
-const KNOWN_DIRS = ['locales', 'resources/app/dist']; // removed afterwards only if they end up empty
-// Resources the Linux build still uses: never deleted even if a name above would match.
-const REQUIRED = [/^resources\/app\/company(\/|$)/i, /^company(\/|$)/i, /^resources\/app\/CurrentCompany\.json$/i];
-
-async function confirm(q) {
-  if (!process.stdin.isTTY) return false;
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  return new Promise((res) => rl.question(q, (a) => { rl.close(); res(/^y(es)?$/i.test(a.trim())); }));
-}
-async function purge(root, opts) {
-  if (!root) { say('No root folder known. Put the AppImage in the Windows install folder or use --root <folder>.'); return 1; }
-  if (root === '/' || root === os.homedir()) { say('Refusing to purge ' + root); return 1; }
-  if (!findCompanyDir(root)) { say(`'${root}' does not look like the Windows root folder (no resources/app/company). Nothing done.`); return 1; }
-  const self = process.env.APPIMAGE ? path.resolve(process.env.APPIMAGE) : null;
-  const known = new Set(KNOWN_WINDOWS_FILES.map((f) => f.toLowerCase()));
-  const hits = [];
-  for (const [rel, abs] of listTree(root)) {
-    const norm = rel.split(path.sep).join('/');
-    if (self && path.resolve(abs) === self) continue;
-    if (REQUIRED.some((re) => re.test(norm))) continue;
-    if (fs.lstatSync(abs).isSymbolicLink()) continue;
-    if (known.has(norm.toLowerCase()) || KNOWN_PATTERNS.some((re) => re.test(norm))) hits.push({ rel: norm, abs, size: fs.statSync(abs).size });
-  }
-  if (!hits.length) { say('No unrequired Windows files found in ' + root); return 0; }
-  const total = hits.reduce((a, h) => a + h.size, 0);
-  say(`Unrequired Windows files in ${root}:`);
-  for (const h of hits) say(`  ${h.rel}  (${(h.size / 1048576).toFixed(2)} MB)`);
-  say(`${hits.length} files, ${(total / 1048576).toFixed(1)} MB. Kept: company/ resources, CurrentCompany.json, the AppImage and everything else not listed.`);
-  if (opts.dryRun) { say('Dry run: nothing deleted.'); return 0; }
-  if (!opts.yes && !(await confirm('Delete these files? Type "yes": '))) { say('Cancelled. (Use --yes to skip this question.)'); return 1; }
-  for (const h of hits) { try { fs.unlinkSync(h.abs); } catch (e) { say('  could not delete ' + h.rel + ': ' + e.message); } }
-  for (const d of KNOWN_DIRS) { const p = path.join(root, d); try { if (fs.existsSync(p) && !fs.readdirSync(p).length) fs.rmdirSync(p); } catch (e) {} }
-  say('Done.');
-  return 0;
 }
 
 // ------------------------------------------------------------------ device cache reset
@@ -301,4 +201,4 @@ function installUdevRules() {
   });
 }
 
-module.exports = { dedupeConfigs, listBackups, restoreBackup, absorb, companyIcon, installUdevRules, rulesInstalledAndCurrent, RULES_DEST, resolveRoot, findCompanyDir, buildOverlay, purge, resetDeviceCache, importWindows, KNOWN_WINDOWS_FILES };
+module.exports = { dedupeConfigs, listBackups, restoreBackup, companyIcon, installUdevRules, rulesInstalledAndCurrent, RULES_DEST, defaultImportDir, buildOverlay, resetDeviceCache, importWindows };

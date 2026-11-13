@@ -1,0 +1,1 @@
+{ "name": "firstblood-hwtests", "version": "1.0.0", "private": true, "description": "Hardware verification harness for the Firstblood B6 Linux driver", "scripts": { "selftest": "FB_HID_MODULE=$PWD/sim/node-hid.js node hwtest.js --phase A,B,C,S --allow-write --reps 3" }, "optionalDependencies": { "node-hid": "3.4.0" } }
