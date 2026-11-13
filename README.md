@@ -3,9 +3,9 @@
 > [!WARNING]
 > ## AI usage disclaimer and general project stability
 >
-> Virtually all of the code was generate over a few weeks by Claude, then running hardware tests on my own device to make sure it does not low it up.
+> Virtually all of the code was generate over a few weeks by Claude, then running hardware tests on my own device to make sure it actually works (surprisingly well since a lot of the mac components can just be replace 1:1 with Linux ones).
 >
-> This is a niche enough project that I do not care for its quality (it keeps eating my macros), but it lets me change keys without opening up a Windows VM.
+> This is a niche enough project that I do not care for its quality (it keeps eating my macros), but it lets me change keys without opening up a Windows VM. The product page boasts it supports QMK/VIA, but I never got it to work on either OS, so this is the next best solution.
 
 A Linux AppImage of the Firstblood configuration app for the **B6 6-button programmable pad** (wired, USB `3151:4015`):
 key remapping on 3 layers, macros, saved configurations, basic lighting, key sensitivity. Built from the vendor's macOS UI (2.0.18)
