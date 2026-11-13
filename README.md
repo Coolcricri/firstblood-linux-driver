@@ -1,5 +1,12 @@
 # Firstblood Driver, Linux edition (B6, wired)
 
+> [!WARNING]
+> ## AI usage disclaimer and general project stability
+>
+> Virtually all of the code was generate over a few weeks by Claude, then running hardware tests on my own device to make sure it does not low it up.
+>
+> This is a niche enough project that I do not care for its quality (it keeps eating my macros), but it lets me change keys without opening up a Windows VM.
+
 A Linux AppImage of the Firstblood configuration app for the **B6 6-button programmable pad** (wired, USB `3151:4015`):
 key remapping on 3 layers, macros, saved configurations, basic lighting, key sensitivity. Built from the vendor's macOS UI (2.0.18)
 plus a Linux replacement for the vendor's native helper (`iot_driver`), which only exists for Windows and macOS.
