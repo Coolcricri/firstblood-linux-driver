@@ -13,7 +13,7 @@ Result: `out/Firstblood-Driver-linux-x86_64.AppImage`. A few minutes (the Electr
 
 * **Needs:** bash, curl, python3, node >= 16 + npm, sha256sum, and network access to github.com and registry.npmjs.org.
   **No compiler, no `unzip`, no 7z, no root.**
-* **You must supply** the vendor's macOS image: the zip that contains `Firstblood_Driver_2.0.18_mac.dmg`, or the `.dmg` itself. It is
+* **You must supply** the vendor's macOS image:(https://orders.epomaker.com/software/Firstblood_Driver_2.0.18_mac.zip) the zip that contains `Firstblood_Driver_2.0.18_mac.dmg`, or the `.dmg` itself. It is
   proprietary and therefore **not** in this tree. `versions.env` pins the SHA-256 of the disk image and of the files inside it; the build
   stops if they differ (`--force` overrides). The `.dmg` is read directly by `tools/dmg_extract.py` (Python standard library; HFS+).
 * Convention: keep the vendor file in `inputs/` (its checksums are in `inputs/SHA256SUMS`; check with `sha256sum -c`).
